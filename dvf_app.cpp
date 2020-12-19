@@ -80,7 +80,7 @@ struct evf_t
 
   float getRate() const
   {
-    return _10_t31 / _38_surface;
+    return (_38_surface > 1.) ? (_10_t31 / _38_surface) : (_10_t31 / _42_terrain);
   }
 
   std::ostringstream view()
@@ -110,9 +110,10 @@ struct evf_t
   }
 };
 
+//--------------------------------------------------------------------------------------------------
 template <size_t N, size_t MIN, size_t MAX> struct stat_t
 {
-  static constexpr float STEP = (MAX - MIN) / float(N);
+  float STEP = (MAX - MIN) / float(N);
   size_t bucket[N];
   std::vector<float> _vals = {};
 
@@ -121,7 +122,7 @@ template <size_t N, size_t MIN, size_t MAX> struct stat_t
     for (size_t i(0); i < N; ++i)
       bucket[i] = 0;
   }
-  void add(float val_)
+  void add2stat(float val_)
   {
     if (val_ > MIN && val_ < MAX)
     {
@@ -137,6 +138,22 @@ template <size_t N, size_t MIN, size_t MAX> struct stat_t
       return 0.0;
     std::sort(_vals.begin(), _vals.end(), [](const auto &lhs_, const auto &rhs_) -> bool { return lhs_ < rhs_; });
     return _vals[_vals.size() / 2];
+  }
+  size_t get_total() const
+  {
+    size_t total = 0;
+    for (size_t i(0); i < N; ++i)
+      total += bucket[i];
+    return total;
+  }
+  std::ostringstream view_header()
+  {
+    std::ostringstream oss;
+    for (size_t i(0); i < N; ++i)
+    {
+      oss << std::setw(7) << std::fixed << std::setprecision(0) << MIN + (i)*STEP << " ";
+    }
+    return oss;
   }
   std::ostringstream view()
   {
@@ -156,13 +173,26 @@ template <size_t N, size_t MIN, size_t MAX> struct stat_t
     oss << "median = " << med << std::endl;
     return oss;
   }
+  std::ostringstream view2()
+  {
+    std::ostringstream oss;
+    size_t total = get_total();
+    for (size_t i(0); i < N; ++i)
+    {
+      //oss << MIN + (i)*STEP << " " << MIN + (i + 1) * STEP << " ";
+      oss << std::setw(3) << std::fixed << bucket[i] << "/";
+      oss << std::setw(2) << std::fixed << std::setprecision(0) << 100. * float(bucket[i]) / float(total) << "% ";
+    }
+    //float med = val_median();
+    //oss << med << "€";
+    return oss;
+  }
 };
 
+//--------------------------------------------------------------------------------------------------
 struct evfs_t
 {
   std::vector<evf_t> _evfs = {};
-  //  stat_t<N, MIN, MAX> _stat = {};
-
   void add(const evf_t &data_)
   {
     _evfs.push_back(data_);
@@ -171,7 +201,7 @@ struct evfs_t
 
 template <int POSTCODE_MAX> struct db_t
 {
-  evfs_t _maps[POSTCODE_MAX];
+  evfs_t _evfs[POSTCODE_MAX];
   int total = {};
   int empty = {};
 
@@ -186,8 +216,79 @@ template <int POSTCODE_MAX> struct db_t
         ++empty;
       }
       ++total;
-      _maps[postcode].add(data_);
+      _evfs[postcode].add(data_);
     }
+    else
+    {
+      std::cout << "POSTCODE OUT OF RANGE:" << postcode << std::endl;
+    }
+  }
+
+  template <typename T, int N> static constexpr size_t get_size(T (&)[N])
+  {
+    return N;
+  }
+  template <size_t N, size_t MIN, size_t MAX, int... POSTCODES> constexpr uint64_t process() const
+  {
+    uint64_t T0 = gettime();
+    constexpr int _postcodes[] = {POSTCODES...};
+    constexpr size_t NB_POSTCODES = get_size(_postcodes);
+    std::map<std::string,stat_t<N, MIN, MAX>> _stats[NB_POSTCODES] = {};
+
+    for ( size_t i(0); i<NB_POSTCODES; ++i)
+    {
+      //std::cout << i << " " << postcode << AT << std::endl;
+      int postcode = _postcodes[i];
+      const evfs_t& evfs = _evfs[postcode];
+      for( auto it : evfs._evfs)
+      {
+        float rate = it.getRate();
+        _stats[i][it._21_section].add2stat( rate );
+      }
+    }
+
+    struct anal_t
+    {
+      int _postcode;
+      std::string _region;
+      stat_t<N, MIN, MAX>* _pstat;
+      float _median;
+    };
+
+    std::vector< anal_t > anals;
+    for ( size_t i(0); i<NB_POSTCODES; ++i)
+    {
+      for( auto & [key,val] : _stats[i])
+      {
+        if( val.get_total() > 0)
+        {
+          anal_t anal
+          {
+            ._postcode = _postcodes[i],
+            ._region = key,
+            ._pstat = &val,
+            ._median = val.val_median(),
+          };
+          anals.push_back( anal);
+        }
+      }
+    }
+
+    std::sort( anals.begin(), anals.end(), [](const auto &lhs_, const auto &rhs_) -> bool { return lhs_._median < rhs_._median; });
+
+    std::cout << "==============================================================================================================================" << AT << std::endl;
+    size_t idx = 0;
+    for( auto& it : anals )
+    {
+      if( idx == 0 )
+        std::cout << "                  " << it._pstat->view_header().str() << std::endl;
+      std::cout << std::setw(3) << std::fixed << std::setprecision(0) << ++idx << " ";
+      std::cout << std::right << std::setw(5) << std::fixed << std::setprecision(0) << it._median << "€ ";
+      std::cout << std::left << std::setw(6) << it._postcode;
+      std::cout << std::left << std::setw(2) << it._region << " ";
+      std::cout << it._pstat->view2().str() << std::endl;
+    }
+    return gettime() - T0;
   }
 };
 
@@ -201,7 +302,7 @@ int main(int argc, char *argv[], char **argenv)
 
   db_t<99999> DB;
 
-  int missing_code = {}, missing_surface = {}, missing_price = {};
+  int missing_postal_code = {}, missing_code = {}, missing_surface = {}, missing_price = {};
   // clang-format off
   uint64_t T0 = gettime();
   pbx::dirent_flat_parsing("./valeursfoncieres",
@@ -300,8 +401,13 @@ int main(int argc, char *argv[], char **argenv)
             }
           }
 
+          if( data._16_address_postal_code == 0)
+          {
+            //std::cout << "missing postal code " << line_ << AT << std::endl;
+            ++missing_postal_code;
+          }
           // si on sait pas de quoi on parle, on skip
-          if (data._36_type_local.empty() && data._40_code_nature_culture.empty())
+          else if (data._36_type_local.empty() && data._40_code_nature_culture.empty())
           {
             // std::cout << "36=40=0 types=empty " << line_ << AT << std::endl;
             ++missing_code;
@@ -313,7 +419,7 @@ int main(int argc, char *argv[], char **argenv)
             ++missing_surface;
           }
           // si on n'a pas le prix, on skip
-          else if (data._10_t31 == 0)
+          else if (data._10_t31 <= 1)
           {
             // std::cout << "31=0 price=0 " << line_ << AT << std::endl;
             ++missing_price;
@@ -329,18 +435,41 @@ int main(int argc, char *argv[], char **argenv)
 
   uint64_t T1 = gettime();
 
-  std::cout << "time     = " << (T1 - T0) / 1'000'000'000. << " sec" << AT << std::endl;
-  std::cout << "total DB = " << std::to_string(DB.total) << AT << std::endl;
-  std::cout << "empty    = " << std::to_string(DB.empty) << AT << std::endl;
-  std::cout << "code=0     " << missing_code << AT << std::endl;
-  std::cout << "surface=0  " << missing_surface << AT << std::endl;
-  std::cout << "price=0    " << missing_price << AT << std::endl;
-  std::cout << "total    = " << std::to_string(DB.total+missing_code+missing_surface+missing_price) << AT << std::endl;
+  std::cout << "time       = " << (T1 - T0) / 1'000'000'000. << " sec" << AT << std::endl;
+  std::cout << "total DB   = " << std::fixed << std::setw(9) << std::right << std::to_string(DB.total) << AT << std::endl;
+  std::cout << "empty      = " << std::fixed << std::setw(9) << std::right << std::to_string(DB.empty) << AT << std::endl;
+  std::cout << "postalcode=0 " << std::fixed << std::setw(9) << std::right << std::to_string(missing_postal_code) << AT << std::endl;
+  std::cout << "code=0       " << std::fixed << std::setw(9) << std::right << std::to_string(missing_code) << AT << std::endl;
+  std::cout << "surface=0    " << std::fixed << std::setw(9) << std::right << std::to_string(missing_surface) << AT << std::endl;
+  std::cout << "price=0      " << std::fixed << std::setw(9) << std::right << std::to_string(missing_price) << AT << std::endl;
+  std::cout << "total      = " << std::fixed << std::setw(9) << std::right << std::to_string(DB.total + missing_code + missing_surface + missing_price) << AT << std::endl;
   // std::cout << (float)DB.empty / (float)DB.total << AT << std::endl;
+
+  // Nieul-sur-Mer      17137
+  // l'Houmeau          17137
+  // Marsilly           17137
+  // Esnandes           17137
+  // Puilboreau         17138
+  // Saint-Xandre       17138
+  // Dompierre-sur-Mer  17139
+  // Lagord             17140
+  // Périgny            17180
+  // Villedoux          17230
+  // Charron            17230
+  // Aytré              17440
+
+  uint64_t time = {};
+
+  time = DB.process<18,1000,10000,17000>();
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
+
+  time = DB.process<18,1000,10000,17000,17137,17138,17139,17140,17180,17230,17440>();
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
 
   return 0;
 }
 
+// https://sethrobertson.github.io/GitFixUm/fixup.html
 // ldd ./a.out
 // readelf -a ./a.out                 -> NEEDED
 // objdump -p ./a.out                 -> rpath
