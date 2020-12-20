@@ -12,6 +12,72 @@
 #include <string>
 #include <vector>
 
+// https://medium.com/ml2b/linear-regression-implementation-in-c-acdfb621e56
+// https://gist.github.com/ahmhashesh?page=3
+//
+// Returns true if linear fit was calculated. False otherwise.
+// Algorithm adapted from:
+// https://en.wikipedia.org/wiki/Simple_linear_regression#Fitting_the_regression_line
+//
+template <typename PairIterator>
+bool GetLinearFit(PairIterator begin_it, PairIterator end_it, double *out_slope, double *out_yintercept)
+{
+  if (begin_it == end_it)
+  {
+    return false;
+  }
+
+  size_t n = 0;
+  double x_avg = 0;
+  double y_avg = 0;
+
+  for (PairIterator it = begin_it; it != end_it; ++it)
+  {
+    x_avg += it->first;
+    y_avg += it->second;
+    n++;
+  }
+
+  x_avg /= (double)n;
+  y_avg /= (double)n;
+
+  double numerator = 0;
+  double denominator = 0;
+
+  for (PairIterator it = begin_it; it != end_it; ++it)
+  {
+    double x_variance = it->first - x_avg;
+    double y_variance = it->second - y_avg;
+    numerator += (x_variance * y_variance);
+    denominator += (x_variance * x_variance);
+  }
+
+  double slope = numerator / denominator;
+  double yintercept = y_avg - slope * x_avg;
+
+  *out_slope = slope;
+  *out_yintercept = yintercept;
+
+  return true;
+}
+
+void test()
+{
+  std::vector<std::pair<int, int>> data;
+  for (int i = 0; i < 10; ++i)
+  {
+    data.push_back(std::pair<int, int>(i + 1, 2 * i));
+  }
+
+  double slope = 0;
+  double y_intercept = 0;
+  GetLinearFit(data.begin(), data.end(), &slope, &y_intercept);
+
+  std::cout << "slope: " << slope << "\n";
+  std::cout << "y_intercept: " << y_intercept << "\n";
+}
+
+//--------------------------------------------------------------------------------------------------
 static std::set<std::string> TYPE_LOCAL_36 = {
     {"Maison"},
     {"Appartement"},
@@ -49,6 +115,10 @@ static std::map<std::string, std::string> CODE_NATURE_CULTURE_40 = {
 };
 
 // clang-format off
+//
+// https://atlas.cosmosia.com/map/
+// https://www.data.gouv.fr/fr/datasets/base-officielle-des-codes-postaux/
+//
 // https://www.data.gouv.fr/fr/datasets/5c4ae55a634f4117716d5656/
 // |||||||000002|20/11/2015|Vente|295000,00|16||RUE|5790|DU MOULIN ROUGE|17000|LA ROCHELLE|17|300||CR|459||||||||||||0|1|Maison||94|4|S||262
 // |||||||000001|27/08/2019|Vente|705000,00|20||RUE|5790|DU MOULIN ROUGE|17000|LA ROCHELLE|17|300||CR|131||||||||||||0|1|Maison||128|7|S||442
@@ -179,12 +249,12 @@ template <size_t N, size_t MIN, size_t MAX> struct stat_t
     size_t total = get_total();
     for (size_t i(0); i < N; ++i)
     {
-      //oss << MIN + (i)*STEP << " " << MIN + (i + 1) * STEP << " ";
+      // oss << MIN + (i)*STEP << " " << MIN + (i + 1) * STEP << " ";
       oss << std::setw(3) << std::fixed << bucket[i] << "/";
       oss << std::setw(2) << std::fixed << std::setprecision(0) << 100. * float(bucket[i]) / float(total) << "% ";
     }
-    //float med = val_median();
-    //oss << med << "€";
+    // float med = val_median();
+    // oss << med << "€";
     return oss;
   }
 };
@@ -220,7 +290,7 @@ template <int POSTCODE_MAX> struct db_t
     }
     else
     {
-      std::cout << "POSTCODE OUT OF RANGE:" << postcode << std::endl;
+      std::cout << "POSTCODE OUT OF RANGE:" << postcode << AT << std::endl;
     }
   }
 
@@ -228,22 +298,32 @@ template <int POSTCODE_MAX> struct db_t
   {
     return N;
   }
-  template <size_t N, size_t MIN, size_t MAX, int... POSTCODES> constexpr uint64_t process() const
+  template <size_t N, size_t MIN, size_t MAX, int... POSTCODES>
+  constexpr uint64_t process(const char *title_, std::initializer_list<std::string> type_local_,
+                             std::initializer_list<std::string> code_nature_culture_) const
   {
     uint64_t T0 = gettime();
     constexpr int _postcodes[] = {POSTCODES...};
     constexpr size_t NB_POSTCODES = get_size(_postcodes);
-    std::map<std::string,stat_t<N, MIN, MAX>> _stats[NB_POSTCODES] = {};
+    std::map<std::string, stat_t<N, MIN, MAX>> _stats[NB_POSTCODES] = {};
+    std::set<std::string> local_types = type_local_;
+    std::set<std::string> code_nature_cultures = code_nature_culture_;
 
-    for ( size_t i(0); i<NB_POSTCODES; ++i)
+    for (size_t i(0); i < NB_POSTCODES; ++i)
     {
-      //std::cout << i << " " << postcode << AT << std::endl;
+      // std::cout << i << " " << postcode << AT << std::endl;
       int postcode = _postcodes[i];
-      const evfs_t& evfs = _evfs[postcode];
-      for( auto it : evfs._evfs)
+      const evfs_t &evfs = _evfs[postcode];
+      for (auto it : evfs._evfs)
       {
-        float rate = it.getRate();
-        _stats[i][it._21_section].add2stat( rate );
+        bool b = true;
+        b = b && (local_types.empty() || (local_types.find(it._36_type_local) != local_types.end()));
+        b = b && (code_nature_cultures.empty() || (code_nature_cultures.find(it._40_code_nature_culture) != code_nature_cultures.end()));
+        if( b )
+        {
+          float rate = it.getRate();
+          _stats[i][it._21_section].add2stat(rate);
+        }
       }
     }
 
@@ -251,39 +331,58 @@ template <int POSTCODE_MAX> struct db_t
     {
       int _postcode;
       std::string _region;
-      stat_t<N, MIN, MAX>* _pstat;
+      stat_t<N, MIN, MAX> *_pstat;
       float _median;
     };
 
-    std::vector< anal_t > anals;
-    for ( size_t i(0); i<NB_POSTCODES; ++i)
+    std::vector<anal_t> anals;
+    for (size_t i(0); i < NB_POSTCODES; ++i)
     {
-      for( auto & [key,val] : _stats[i])
+      for (auto &[key, val] : _stats[i])
       {
-        if( val.get_total() > 0)
+        if (val.get_total() > 0)
         {
-          anal_t anal
-          {
-            ._postcode = _postcodes[i],
-            ._region = key,
-            ._pstat = &val,
-            ._median = val.val_median(),
+          anal_t anal{
+              ._postcode = _postcodes[i],
+              ._region = key,
+              ._pstat = &val,
+              ._median = val.val_median(),
           };
-          anals.push_back( anal);
+          anals.push_back(anal);
         }
       }
     }
 
-    std::sort( anals.begin(), anals.end(), [](const auto &lhs_, const auto &rhs_) -> bool { return lhs_._median < rhs_._median; });
+    std::sort(anals.begin(), anals.end(),
+              [](const auto &lhs_, const auto &rhs_) -> bool { return lhs_._median < rhs_._median; });
 
-    std::cout << "==============================================================================================================================" << AT << std::endl;
-    size_t idx = 0;
-    for( auto& it : anals )
+    std::cout << "====================================================================================================="
+              << AT << std::endl;
+    std::cout << "=== " << title_;
+    if (!local_types.empty())
     {
-      if( idx == 0 )
-        std::cout << "                  " << it._pstat->view_header().str() << std::endl;
+      std::cout << " -";
+      for (auto &it : local_types)
+        std::cout << " " << it;
+    }
+    if( !code_nature_cultures.empty())
+    {
+      std::cout << " -";
+      for (auto &it : code_nature_cultures)
+        std::cout << " " << it;
+    }
+    std::cout << " ===" << std::endl;
+    std::cout << "====================================================================================================="
+              << AT << std::endl;
+    size_t idx = 0;
+    for (auto &it : anals)
+    {
+      if (idx == 0)
+        std::cout << "                      " << it._pstat->view_header().str() << std::endl;
+
       std::cout << std::setw(3) << std::fixed << std::setprecision(0) << ++idx << " ";
       std::cout << std::right << std::setw(5) << std::fixed << std::setprecision(0) << it._median << "€ ";
+      std::cout << std::right << std::setw(4) << std::fixed << std::setprecision(0) << it._pstat->get_total() << " ";
       std::cout << std::left << std::setw(6) << it._postcode;
       std::cout << std::left << std::setw(2) << it._region << " ";
       std::cout << it._pstat->view2().str() << std::endl;
@@ -401,9 +500,10 @@ int main(int argc, char *argv[], char **argenv)
             }
           }
 
-          if( data._16_address_postal_code == 0)
+          // si on n'a pas le code postal, on skip
+          if (data._16_address_postal_code == 0)
           {
-            //std::cout << "missing postal code " << line_ << AT << std::endl;
+            // std::cout << "missing postal code " << line_ << AT << std::endl;
             ++missing_postal_code;
           }
           // si on sait pas de quoi on parle, on skip
@@ -436,14 +536,29 @@ int main(int argc, char *argv[], char **argenv)
   uint64_t T1 = gettime();
 
   std::cout << "time       = " << (T1 - T0) / 1'000'000'000. << " sec" << AT << std::endl;
-  std::cout << "total DB   = " << std::fixed << std::setw(9) << std::right << std::to_string(DB.total) << AT << std::endl;
-  std::cout << "empty      = " << std::fixed << std::setw(9) << std::right << std::to_string(DB.empty) << AT << std::endl;
-  std::cout << "postalcode=0 " << std::fixed << std::setw(9) << std::right << std::to_string(missing_postal_code) << AT << std::endl;
-  std::cout << "code=0       " << std::fixed << std::setw(9) << std::right << std::to_string(missing_code) << AT << std::endl;
-  std::cout << "surface=0    " << std::fixed << std::setw(9) << std::right << std::to_string(missing_surface) << AT << std::endl;
-  std::cout << "price=0      " << std::fixed << std::setw(9) << std::right << std::to_string(missing_price) << AT << std::endl;
-  std::cout << "total      = " << std::fixed << std::setw(9) << std::right << std::to_string(DB.total + missing_code + missing_surface + missing_price) << AT << std::endl;
+  std::cout << "total DB   = " << std::fixed << std::setw(9) << std::right << std::to_string(DB.total) << AT
+            << std::endl;
+  std::cout << "empty      = " << std::fixed << std::setw(9) << std::right << std::to_string(DB.empty) << AT
+            << std::endl;
+  std::cout << "postalcode=0 " << std::fixed << std::setw(9) << std::right << std::to_string(missing_postal_code) << AT
+            << std::endl;
+  std::cout << "code=0       " << std::fixed << std::setw(9) << std::right << std::to_string(missing_code) << AT
+            << std::endl;
+  std::cout << "surface=0    " << std::fixed << std::setw(9) << std::right << std::to_string(missing_surface) << AT
+            << std::endl;
+  std::cout << "price=0      " << std::fixed << std::setw(9) << std::right << std::to_string(missing_price) << AT
+            << std::endl;
+  std::cout << "total      = " << std::fixed << std::setw(9) << std::right
+            << std::to_string(DB.total + missing_code + missing_surface + missing_price) << AT << std::endl;
   // std::cout << (float)DB.empty / (float)DB.total << AT << std::endl;
+
+  uint64_t time = {};
+
+  time = DB.process<17, 1000, 9500, 17000>("La Rochelle - CR", {}, {});
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
+
+  time = DB.process<17, 1000, 9500, 17000>("La Rochelle - CR", {"Maison"}, {});
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
 
   // Nieul-sur-Mer      17137
   // l'Houmeau          17137
@@ -457,18 +572,55 @@ int main(int argc, char *argv[], char **argenv)
   // Villedoux          17230
   // Charron            17230
   // Aytré              17440
-
-  uint64_t time = {};
-
-  time = DB.process<18,1000,10000,17000>();
+  time = DB.process<17, 1000, 9500, 17000, 17137, 17138, 17139, 17140, 17180, 17440, 17690>(
+      "La Rochelle - CR - petite couronne", {}, {});
   std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
 
-  time = DB.process<18,1000,10000,17000,17137,17138,17139,17140,17180,17230,17440>();
+  time = DB.process<17, 1000, 9500, 17000, 17230, 17540, 17220, 17290, 17340, 17450, 17870, 17300, 17730, 17780>(
+      "La Rochelle - CR - grande couronne", {}, {});
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
+
+  // 17286;LES PORTES EN RE;17880;;LES PORTES EN RE;46.2420561008,-1.50055338015
+  // 17318;ST CLEMENT DES BALEINES;17590;LE GILLIEUX;ST CLEMENT DES BALEINES;46.2363966414,-1.53823691013
+  // 17019;ARS EN RE;17590;;ARS EN RE;46.2111995219,-1.51504354145
+  // 17207;LOIX;17111;;LOIX;46.2206970303,-1.44742224343
+  // 17121;LA COUARDE SUR MER;17670;;LA COUARDE SUR MER;46.2010718838,-1.4366169353
+  // 17051;LE BOIS PLAGE EN RE;17580;;LE BOIS PLAGE EN RE;46.1825283655,-1.37625908104
+  // 17369;ST MARTIN DE RE;17410;;ST MARTIN DE RE;46.1990908569,-1.36683779933
+  // 17161;LA FLOTTE;17630;;LA FLOTTE;46.1793660462,-1.32163012232
+  // 17360;STE MARIE DE RE;17740;;STE MARIE DE RE;46.1560367496,-1.32154377304
+  // 17297;RIVEDOUX PLAGE;17940;;RIVEDOUX PLAGE;46.159061213,-1.28302289715
+  time = DB.process<17, 1000, 9500, 17000, 17880, 17590, 17111, 17670, 17580, 17410, 17630, 17740, 17940>(
+      "La Rochelle - CR - Ile de Re", {}, {});
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
+
+  // 17323;ST DENIS D OLERON;17650;;ST DENIS D OLERON;46.0234747885,-1.38577964477
+  // 17337;ST GEORGES D OLERON;17190;SAUZELLE;ST GEORGES D OLERON;45.9762465553,-1.32432969206
+  // 17385;ST PIERRE D OLERON;17310;;ST PIERRE D OLERON;45.9396931461,-1.30530935595
+  // 17140;DOLUS D OLERON;17550;;DOLUS D OLERON;45.9096185439,-1.25750953748
+  // 17093;LE CHATEAU D OLERON;17480;;LE CHATEAU D OLERON;45.8813853125,-1.2166234835
+  // 17411;ST TROJAN LES BAINS;17370;;ST TROJAN LES BAINS;45.8319189499,-1.22713007046
+  // 17485;LE GRAND VILLAGE PLAGE;17370;;LE GRAND VILLAGE PLAGE;45.8620787516,-1.24274513266
+  time = DB.process<17, 1000, 9500, 17000, 17650, 17840, 17190, 17310, 17550, 17480, 17370>(
+      "La Rochelle - CR - Ile d'Oleron", {}, {});
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
+
+  time = DB.process<17, 1000, 18000, 75014>("Paris 14", {"Appartement"}, {});
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
+
+  time = DB.process<17, 1000, 18000, 92500>("Rueil - Peri AH - Seine AV", {"Appartement"}, {});
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
+
+  time = DB.process<17, 0, 8500, 17500>("Jonzac", {"Maison"}, {});
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
+
+  time = DB.process<17, 0, 8500, 17500>("Jonzac ZN ZE ZM", {}, {"P","T"});
   std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
 
   return 0;
 }
 
+// rsync -avzh ~/tmp
 // https://sethrobertson.github.io/GitFixUm/fixup.html
 // ldd ./a.out
 // readelf -a ./a.out                 -> NEEDED
