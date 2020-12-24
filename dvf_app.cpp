@@ -129,7 +129,7 @@ static std::map<std::string, std::string> CODE_NATURE_CULTURE_40 = {
 //
 struct evf_t
 {
-  char _8_t52[8];
+  char _8_t52[9];
   float _10_t31;
   // std::string _no802 = "4";
   // 803=34,523=Address City
@@ -148,11 +148,26 @@ struct evf_t
   float _42_terrain;
   // std::string _36_type_local, _38_surface, _39_nopieces, _42_terrain;
 
-  float getRate() const
+  std::ostringstream view2(float rate_)
   {
-    return (_38_surface > 1.) ? (_10_t31 / _38_surface) : (_10_t31 / _42_terrain);
+    std::ostringstream oss;
+    oss << std::setw(8) << std::fixed << std::setprecision(1) << rate_ << "; ";
+    oss << _21_section << "; ";
+    oss << _8_t52 << "; ";
+    oss << std::setw(7) << std::fixed << std::setprecision(0) << _10_t31 << "; ";
+    oss << std::setfill(' ') << std::setw(12) << _36_type_local << "; ";
+    oss << std::setfill(' ') << std::setw(2) << _40_code_nature_culture << "; ";
+    oss << std::setw(7) << std::fixed << _38_surface << "; ";
+    oss << std::setw(7) << std::fixed << _42_terrain << "; ";
+    // oss << _11_address_no << " " << _13_address_type_de_voie << " " << _address_street << " " <<
+    // _16_address_postal_code << " " << _17_address_city << " "
+    // << _add_state << " ";
+    return oss;
   }
-
+  // float getRate() const
+  // {
+  //   return (_38_surface > 1.) ? (_10_t31 / _38_surface) : (_10_t31 / (_42_terrain/10'000.));
+  // }
   std::ostringstream view()
   {
     std::ostringstream oss;
@@ -161,21 +176,6 @@ struct evf_t
     // oss << _11_address_no << " " << _13_address_type_de_voie << " " << _address_street << " " <<
     // _16_address_postal_code << " " << _17_address_city << " "
     // << _add_state << " " << _21_section << " ";
-    return oss;
-  }
-  std::ostringstream view2()
-  {
-    std::ostringstream oss;
-    oss << std::setw(8) << std::fixed << std::setprecision(1) << getRate() << "; ";
-    oss << _21_section << "; ";
-    oss << _8_t52 << "; ";
-    oss << std::setw(7) << std::fixed << std::setprecision(0) << _10_t31 << "; ";
-    oss << std::setfill(' ') << std::setw(12) << _36_type_local << "; ";
-    oss << std::setw(7) << std::fixed << _38_surface << "; ";
-    oss << std::setw(7) << std::fixed << _42_terrain << "; ";
-    // oss << _11_address_no << " " << _13_address_type_de_voie << " " << _address_street << " " <<
-    // _16_address_postal_code << " " << _17_address_city << " "
-    // << _add_state << " ";
     return oss;
   }
 };
@@ -263,19 +263,22 @@ template <size_t N, size_t MIN, size_t MAX> struct stat_t
 struct evfs_t
 {
   std::vector<evf_t> _evfs = {};
-  void add(const evf_t &data_)
+  size_t push_back_data(const evf_t &data_)
   {
+    size_t sz = _evfs.size();
     _evfs.push_back(data_);
+    return sz;
   }
 };
 
 template <int POSTCODE_MAX> struct db_t
 {
-  evfs_t _evfs[POSTCODE_MAX];
+  evfs_t _evfs2[POSTCODE_MAX];
+  std::map<std::string, std::vector<size_t>> _keys[POSTCODE_MAX]; // pas optimal :-(
   int total = {};
   int empty = {};
 
-  void add(const evf_t &data_)
+  void add_data(const evf_t &data_)
   {
     int postcode = data_._16_address_postal_code;
     if (postcode > 0 && postcode < POSTCODE_MAX)
@@ -285,8 +288,15 @@ template <int POSTCODE_MAX> struct db_t
       {
         ++empty;
       }
-      ++total;
-      _evfs[postcode].add(data_);
+      else
+      {
+        ++total;
+        auto pos = _evfs2[postcode].push_back_data(data_);
+        std::ostringstream key; // key construction
+        key << data_._8_t52;
+        key << std::fixed << std::setprecision(0) << data_._10_t31;
+        _keys[postcode][key.str()].push_back(pos);
+      }
     }
     else
     {
@@ -294,10 +304,139 @@ template <int POSTCODE_MAX> struct db_t
     }
   }
 
+  constexpr float get_rate(const evf_t &evf_, std::ostringstream &debug_) const
+  {
+    float rate = {};
+    int postcode = evf_._16_address_postal_code;
+    std::ostringstream keystr; // keystr construction
+    keystr << evf_._8_t52;
+    keystr << std::fixed << std::setprecision(0) << evf_._10_t31;
+    auto found = _keys[postcode].find(keystr.str());
+    if (found != _keys[postcode].end())
+    {
+      std::map<std::string, float> surfaces;
+      debug_ << "> ";
+      // debug_ << postcode << " ";
+      for (auto &pos : found->second)
+      {
+        const std::string &code40 = _evfs2[postcode]._evfs[pos]._40_code_nature_culture;
+
+        // > 0/9134(ZK,T), 0/8276(ZN,VI), 0/4517(ZN,T), 0/7486(ZN,VI),
+        // > 0/880(ZN,T), 0/480(ZN,S), 0/636(ZN,S), 0/3313(ZN,T),
+        // > 90/500(ZN,S), 90/1694(ZN,T),
+        // debug_ << std::fixed << std::setprecision(0) << _evfs2[postcode]._evfs[pos]._38_surface << "/" <<
+        // _evfs2[postcode]._evfs[pos]._42_terrain; debug_ << "(" << _evfs2[postcode]._evfs[pos]._21_section << "," <<
+        // code40 << "), ";
+        if (code40.data()[0] == 'S')
+        {
+          if (_evfs2[postcode]._evfs[pos]._38_surface > 1.)
+            surfaces[code40] += _evfs2[postcode]._evfs[pos]._38_surface; // theoriquement c'est ca ...
+          else
+            surfaces[code40] += _evfs2[postcode]._evfs[pos]._42_terrain; // ... mais des fois c'est ca
+        }
+        else
+        {
+          surfaces[code40] += _evfs2[postcode]._evfs[pos]._42_terrain;
+        }
+      }
+
+      float surface = {}, autre = {};
+      for (auto &[key, val] : surfaces)
+      {
+        debug_ << " " << key << "=" << std::fixed << std::setprecision(0) << val << " ";
+        if (key.data()[0] == 'S')
+          surface += val;
+        else
+          autre += val;
+      }
+      debug_ << " surface=" << std::fixed << std::setprecision(0) << surface;
+      debug_ << " autre=" << std::fixed << std::setprecision(0) << autre;
+      float terrain = {};
+      if (surface > 1.)
+      {
+        if (autre < 5000.)
+          terrain = surface;
+        else
+          terrain = surface + autre / 10'000.;
+      }
+      else
+      {
+        if (autre < 5000.)
+          terrain = autre;
+        else
+          terrain = autre / 10'000.;
+      }
+      debug_ << " terrain=" << std::fixed << std::setprecision(3) << terrain;
+      rate = evf_._10_t31 / terrain;
+      // debug_ << " terrain=" << std::fixed << std::setprecision(1) << terrain;
+      // debug_ << " px=" << std::fixed << std::setprecision(0) << evf_._10_t31;
+      // debug_ << " rate=" << std::setprecision(1) << rate;
+      // std::cout << debug_.str() << std::endl;
+    }
+    else
+    {
+      exit(0);
+      if (evf_._40_code_nature_culture == "S")
+        rate = evf_._10_t31 / evf_._38_surface;
+      else
+        rate = evf_._10_t31 / (evf_._42_terrain / 10'000.);
+    }
+    return rate;
+  }
+
+  template <int POSTCODE>
+  constexpr uint64_t preview(const char *title_, std::initializer_list<std::string> section_,
+                             std::initializer_list<std::string> type_local_,
+                             std::initializer_list<std::string> code_nature_culture_) const
+  {
+    uint64_t T0 = gettime();
+    std::set<std::string> sections = section_;
+    std::set<std::string> local_types = type_local_;
+    std::set<std::string> code_nature_cultures = code_nature_culture_;
+
+    std::cout << "====================================================================================================="
+              << AT << std::endl;
+    std::cout << "=== " << title_;
+    if (!local_types.empty())
+    {
+      std::cout << " -";
+      for (auto &it : local_types)
+        std::cout << " " << it;
+    }
+    if (!code_nature_cultures.empty())
+    {
+      std::cout << " -";
+      for (auto &it : code_nature_cultures)
+        std::cout << " " << it;
+    }
+    std::cout << " ===" << std::endl;
+    std::cout << "====================================================================================================="
+              << AT << std::endl;
+
+    const evfs_t &evfs = _evfs2[POSTCODE];
+    for (auto it : evfs._evfs)
+    {
+      bool b = true;
+      b = b && (sections.empty() || (sections.find(it._21_section) != sections.end()));
+      b = b && (local_types.empty() || (local_types.find(it._36_type_local) != local_types.end()));
+      b = b && (code_nature_cultures.empty() ||
+                (code_nature_cultures.find(it._40_code_nature_culture) != code_nature_cultures.end()));
+      if (b)
+      {
+        std::ostringstream debug;
+        float rate = this->get_rate(it, debug);
+        // std::cout << it.view2(rate).str() << std::endl;
+        std::cout << it.view2(rate).str() << " " << debug.str() << std::endl;
+      }
+    }
+    return gettime() - T0;
+  }
+
   template <typename T, int N> static constexpr size_t get_size(T (&)[N])
   {
     return N;
   }
+
   template <size_t N, size_t MIN, size_t MAX, int... POSTCODES>
   constexpr uint64_t process(const char *title_, std::initializer_list<std::string> type_local_,
                              std::initializer_list<std::string> code_nature_culture_) const
@@ -313,15 +452,17 @@ template <int POSTCODE_MAX> struct db_t
     {
       // std::cout << i << " " << postcode << AT << std::endl;
       int postcode = _postcodes[i];
-      const evfs_t &evfs = _evfs[postcode];
+      const evfs_t &evfs = _evfs2[postcode];
       for (auto it : evfs._evfs)
       {
         bool b = true;
         b = b && (local_types.empty() || (local_types.find(it._36_type_local) != local_types.end()));
-        b = b && (code_nature_cultures.empty() || (code_nature_cultures.find(it._40_code_nature_culture) != code_nature_cultures.end()));
-        if( b )
+        b = b && (code_nature_cultures.empty() ||
+                  (code_nature_cultures.find(it._40_code_nature_culture) != code_nature_cultures.end()));
+        if (b)
         {
-          float rate = it.getRate();
+          std::ostringstream debug;
+          float rate = this->get_rate(it, debug);
           _stats[i][it._21_section].add2stat(rate);
         }
       }
@@ -365,7 +506,7 @@ template <int POSTCODE_MAX> struct db_t
       for (auto &it : local_types)
         std::cout << " " << it;
     }
-    if( !code_nature_cultures.empty())
+    if (!code_nature_cultures.empty())
     {
       std::cout << " -";
       for (auto &it : code_nature_cultures)
@@ -413,11 +554,33 @@ int main(int argc, char *argv[], char **argenv)
         auto tokens = pbx::parse_csv_header(str);
       }
 // Header:
-// Code service CH|Reference document|1 Articles CGI|2 Articles CGI|3 Articles CGI|4 Articles CGI|5 Articles CGI|No disposition|Date mutation|Nature mutation|Valeur fonciere|No voie|B/T/Q|Type de voie|Code voie|Voie|Code postal|Commune|Code departement|Code commune|Prefixe de section|Section|No plan|No Volume|1er lot|Surface Carrez du 1er lot|2eme lot|Surface Carrez du 2eme lot|3eme lot|Surface Carrez du 3eme lot|4eme lot|Surface Carrez du 4eme lot|5eme lot|Surface Carrez du 5eme lot|Nombre de lots|Code type local|Type local|Identifiant local|Surface reelle bati|Nombre pieces principales|Nature culture|Nature culture speciale|Surface terrain
+// 0:  Code service CH|Reference document|1 Articles CGI|2 Articles CGI|3 Articles CGI|4 Articles CGI|5 Articles CGI|No disposition|Date mutation|Nature mutation|
+// 10: Valeur fonciere|No voie|B/T/Q|Type de voie|Code voie|Voie|Code postal|Commune|Code departement|Code commune|Prefixe de section|Section|No plan|No Volume|
+// 24: 1er lot|Surface Carrez du 1er lot|2eme lot|Surface Carrez du 2eme lot|3eme lot|Surface Carrez du 3eme lot|
+// 30: 4eme lot|Surface Carrez du 4eme lot|5eme lot|Surface Carrez du 5eme lot|
+// 34: Nombre de lots|Code type local|Type local|Identifiant local|Surface reelle bati|
+// 39: Nombre pieces principales|Nature culture|Nature culture speciale|Surface terrain
 //                   8               10      11   13         15            16      17       18 19   21  22                 36     38      42
 // |||||||000002|20/11/2015|Vente|295000,00|16||RUE|5790|DU MOULIN ROUGE|17000|LA ROCHELLE|17|300||CR|459||||||||||||0|1|Maison||94|4|S||262
 // |||||||000001|27/08/2019|Vente|705000,00|20||RUE|5790|DU MOULIN ROUGE|17000|LA ROCHELLE|17|300||CR|131||||||||||||0|1|Maison||128|7|S||442
 // 705 000 € / Vente; 26/08/2019; 20 RUE DU MOULIN ROUGE; 128 m²; Maison / 7 p; 442 m²; sols; 5508 € / m²
+
+// |||||||000001|22/12/2016|Vente|58800,00||||B094|L ENCLOUSE|17500|OZILLAC|17|270||ZN|17||||||||||||0||||||T||2380
+// |||||||000001|22/12/2016|Vente|58800,00||||B094|L ENCLOUSE|17500|OZILLAC|17|270||ZN|15||||||||||||0||||||T||62520
+// |||||||000001|22/12/2016|Vente|58800,00||||B094|L ENCLOUSE|17500|OZILLAC|17|270||ZN|14||||||||||||0||||||T||29500
+// |||||||000001|22/12/2016|Vente|58800,00||||B094|L ENCLOUSE|17500|OZILLAC|17|270||ZN|12||||||||||||0||||||T||41050
+// |||||||000001|22/12/2016|Vente|58800,00||||B008|BOIS DE L HERVOIR|17500|OZILLAC|17|270||ZM|101||||||||||||0||||||BT||5205
+// |||||||000001|22/12/2016|Vente|58800,00||||B066|CHEZ ESTEFFE|17500|OZILLAC|17|270||ZR|116||||||||||||0||||||BT|CHENE|5349
+// |||||||000001|22/12/2016|Vente|58800,00||||B070|LA GRANDE PRAIRIE|17500|CHAMPAGNAC|17|82||ZM|30||||||||||||0||||||T||11200
+
+// |||||||000001|21/06/2016|Vente|5555,00||||B101|LE FIEF DE CHEZ VIGER|17500|OZILLAC|17|270||ZN|66||||||||||||0||||||T||8930
+// |||||||000001|21/06/2016|Vente|5555,00||||B101|LE FIEF DE CHEZ VIGER|17500|OZILLAC|17|270||ZN|69||||||||||||0||||||T||870
+// |||||||000001|21/06/2016|Vente|5555,00||||B101|LE FIEF DE CHEZ VIGER|17500|OZILLAC|17|270||ZN|70||||||||||||0||||||T||1310
+
+// |||||||000001|28/06/2018|Vente|301980,00|33|||B038|LA FORET|17500|MEUX|17|233||ZN|146||||||||||||0|1|Maison||190|6|S||500
+// |||||||000001|28/06/2018|Vente|301980,00|33|||B038|LA FORET|17500|MEUX|17|233||ZN|146||||||||||||0|1|Maison||190|6|AG||2644
+// |||||||000001|28/06/2018|Vente|301980,00||||B038|LA FORET|17500|MEUX|17|233||ZN|150||||||||||||0||||||T||2856
+
       auto push_evf_t = [&](pbx::Tokens &tokens_, const std::string& line_)
       {
         evf_t data {
@@ -478,6 +641,7 @@ int main(int argc, char *argv[], char **argenv)
           data._8_t52[5] = p[4];
           data._8_t52[6] = p[0];
           data._8_t52[7] = p[1];
+          data._8_t52[8] = '\0';
 
           if (!data._36_type_local.empty())
           {
@@ -527,7 +691,7 @@ int main(int argc, char *argv[], char **argenv)
           else
           {
             // on sait de quoi on parle, on a une surface et un prix, on ajoute a la DB
-            DB.add(data);
+            DB.add_data(data);
           }
         };
         pbx::parse_csv_file(push_evf_t, str, '|');
@@ -614,17 +778,23 @@ int main(int argc, char *argv[], char **argenv)
   time = DB.process<17, 0, 8500, 17500>("Jonzac", {"Maison"}, {});
   std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
 
-  time = DB.process<17, 0, 8500, 17500>("Jonzac ZN ZE ZM", {}, {"P","T"});
+  time = DB.process<17, 0, 8500, 17500>("Jonzac ZN ZE ZM", {}, {"P", "T"});
+  std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
+
+  // time = DB.preview<17500>("Jonzac ZN ZE ZM", {"ZN","ZE","ZM"}, {}, {"P","T"});
+  time = DB.preview<17500>("Jonzac ZN ZE ZM", {"ZN"}, {}, {"P", "T"});
   std::cout << "time  = " << (time) / 1'000. << " micro sec" << AT << std::endl;
 
   return 0;
 }
 
 // rsync -avzh ~/tmp
+// rsync -av oulavie/ /media/fullname/8B12-298C/oulavie --exclude='.git/'
 // https://sethrobertson.github.io/GitFixUm/fixup.html
 // ldd ./a.out
 // readelf -a ./a.out                 -> NEEDED
 // objdump -p ./a.out                 -> rpath
+// valgrind --tool=memcheck program_name --leak-check=yes ./a.out
 // LD_DEBUG=libs ldd <executable>
 // clang-format-9 -i dvf_app.cpp
 // Demande de Valeur Foncière
