@@ -243,7 +243,7 @@ template <size_t N, size_t MIN, size_t MAX> struct stat_t
     oss << "median = " << med << std::endl;
     return oss;
   }
-  std::ostringstream view2()
+  std::ostringstream view2() const
   {
     std::ostringstream oss;
     size_t total = get_total();
